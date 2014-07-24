@@ -1,0 +1,68 @@
+---
+title: "Classifying Dumbbell Technique with a Random Forest"
+output: html_document
+---
+
+### Executive Sumamry
+
+I classified how well subjects were performing dumbbell lifts using a random forest classifier. The data consists of measurments from gyroscopes, accelerometers and magnetometers on the subjects' forearm, arm, dumbbell and belt. Using a subset of these measurements, I'm able to train a random forest classifier with accuracy and Kappa near 99% and accurately predict the test set classes. The data for this project can be found at: http://groupware.les.inf.puc-rio.br/har
+
+### Data Processing
+
+Start by loading 'caret' library, and checking if files have already been downloaded. If not, download the files. Once files have been downloaded, read in the testing and training data.
+
+```{r}
+library(caret)
+if (!file.exists("pml-training.csv")){
+    download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv", destfile="pml-training.csv", method="curl")
+}
+training <- read.csv("pml-training.csv")
+if (!file.exists("pml-testing.csv")){
+    download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv", destfile="pml-testing.csv", method="curl")
+}
+testing <- read.csv("pml-testing.csv")
+```
+
+Partition data into a new training data set (with 70% of the data) and cross validation set (with the remaining 30%).
+```{r}
+inTrain <- createDataPartition(training$classe, p=0.7, list=FALSE)
+trainnew <- training[inTrain,]
+cvd <- training[-inTrain,]
+```
+
+First, remove columns that are mostly NaN's. I found that columns with any NaN's always had nearly 100% NaN's.
+
+```{r}
+sumisna <- apply((apply(trainnew, 2, is.na)), 2, sum)
+trainnona = trainnew[,sumisna==0]
+```
+
+Next I chose features to train the random forest algorithm with. This was done by trying to predict which variables should correlate with different forms lifting. For example, class "E" corresponds to throwing one's hips to the front, so I expected many of the belt features to be important. I also plotted each variable with class as the color to identify features that could potentially be used to distinguish between different classes. An example plot is show below for "gyros_dumbell_y", or the measurement from the dumbbell gyroscope in the y direction. Classes B and E seem to have large absolute values for this, while class A, for exapmle, seems to have values close to 0. Feature number 93 is for the 'classe' variable.
+
+```{r}
+features <- c(8, 10, 11, 21, 22, 23, 30, 33, 63, 68, 72, 93)
+names(trainnona)[features]
+feattrain <- trainnona[,features]
+qplot(seq(1, dim(feattrain)[1]), feattrain[,9], col=feattrain$classe, xlab="Index", ylab="gyros_dumbbell_y", ylim=(c(-2.5, 4.5)))
+```
+
+Next I train the classifier. I used a random forest with the default arguments. I then applied this to the cross validation set (after processing it as the training set was) to get an estimate of the classifier's error
+
+```{r, cache=TRUE}
+modFit <- train(classe ~ ., method="rf", data=feattrain)
+cvdfeat <- cvd[,sumisna==0]
+cvdfeat <- cvdfeat[, features]
+cvdpred <- predict(modFit, cvdfeat)
+confusionMatrix(cvdpred, cvdfeat$classe)
+```
+
+The classifer has an accuracy of 98.8% and a Kappa of 98.5%. The sensitivity and specificity (and other statistics) are typically near 99% for all classes. Overall, the model is performing well and is ready to be applied to the test set.
+
+As with the cross validation set, the test data needs to be processed by selecting only the columns that were used in training the model. Then the predictions for the test set are printed out. These match the correct answers (according to the 'submission' part of the assignment).
+
+```{r}
+testfeat <- testing[,sumisna==0]
+testfeat <- testfeat[,features]
+testpred <- predict(modFit, testfeat)
+testpred
+```
